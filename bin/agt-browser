@@ -1,0 +1,75 @@
+#!/data/data/com.novainc.agt/files/usr/bin/env sh
+# AGT Browser launcher. Adapted from Alpine's chromium-launcher.sh
+# (https://gitlab.alpinelinux.org/alpine/aports/-/blob/master/community/chromium/chromium-launcher.sh)
+# The real binary and its runtime files live in this add-on's lib/.
+
+AGT_BROWSER_PREFIX=/data/data/com.novainc.agt/files/addons/agt-browser
+
+# Allow the user to override command-line flags.
+# Prefer user defined CHROMIUM_USER_FLAGS (from env) over system
+# default CHROMIUM_FLAGS (from etc/chromium/*.conf).
+for f in $AGT_BROWSER_PREFIX/etc/chromium/*.conf; do
+    [ -f ${f} ] && . "${f}"
+done
+CHROMIUM_FLAGS=${CHROMIUM_USER_FLAGS:-"$CHROMIUM_FLAGS"}
+
+# Let the wrapped binary know that it has been run through the wrapper
+export CHROME_WRAPPER=$(readlink -f "$0")
+
+PROGDIR=${CHROME_WRAPPER%/*}
+LIBDIR="$PROGDIR/../lib"
+
+# The add-on's lib/ holds the binary's dependency closure.
+export LD_LIBRARY_PATH="$LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+case ":$PATH:" in
+  *:$LIBDIR:*)
+    ;;
+  *)
+    # So chromedriver and headless_shell resolve by name too
+    export PATH="$PATH:$LIBDIR"
+    ;;
+esac
+
+if [ $(id -u) -eq 0 ] && [ $(stat -c %u -L ${XDG_CONFIG_HOME:-${HOME}}) -eq 0 ]; then
+	# Running as root with HOME owned by root.
+	# Pass --user-data-dir to work around upstream failsafe.
+	CHROMIUM_FLAGS="--user-data-dir=${XDG_CONFIG_HOME:-${HOME}/.config}/chromium
+		${CHROMIUM_FLAGS}"
+fi
+
+# Set the .desktop file name
+export CHROME_DESKTOP="chromium.desktop"
+
+
+# The shipped X libraries were built under the prefix addons/chromium and
+# look for the X socket under that prefix. Bridge it to the live session
+# socket so the browser finds the desktop without any manual setup.
+if [ -n "$DISPLAY" ]; then
+    _disp=${DISPLAY#*:}; _disp=${_disp%%.*}
+    _sockdir=/data/data/com.novainc.agt/files/addons/chromium/var/.X11-unix
+    if [ -n "$_disp" ] && [ ! -S "$_sockdir/X${_disp}" ]; then
+        for _cand in \
+            /data/data/com.novainc.agt/files/addons/xfce/var/.X11-unix/X${_disp} \
+            /data/data/com.novainc.agt/files/usr/tmp/.X11-unix/X${_disp} \
+            /tmp/.X11-unix/X${_disp}; do
+            if [ -S "$_cand" ]; then
+                mkdir -p "$_sockdir" 2>/dev/null
+                ln -sf "$_cand" "$_sockdir/X${_disp}" 2>/dev/null
+                break
+            fi
+        done
+    fi
+    unset _disp _sockdir _cand
+fi
+
+# Ship our own fontconfig so text renders without depending on test env
+# or on another add-on being installed.
+if [ -z "$FONTCONFIG_FILE" ] && [ -f "$AGT_BROWSER_PREFIX/etc/fonts/fonts.conf" ]; then
+    export FONTCONFIG_FILE="$AGT_BROWSER_PREFIX/etc/fonts/fonts.conf"
+fi
+if [ -z "$FONTCONFIG_PATH" ] && [ -d "$AGT_BROWSER_PREFIX/etc/fonts" ]; then
+    export FONTCONFIG_PATH="$AGT_BROWSER_PREFIX/etc/fonts"
+fi
+
+exec "$LIBDIR/agt-browser" ${CHROMIUM_FLAGS} "$@"
