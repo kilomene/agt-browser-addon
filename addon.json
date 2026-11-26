@@ -1,0 +1,9 @@
+{
+"id": "agt-browser",
+"name": "AGT Browser",
+"version": "0.1.1",
+"description": "AGT Browser: full Chromium 157 browser for agents, headed on the agent's own XFCE desktop or headless",
+"bin": [
+"agt-browser"
+]
+}
